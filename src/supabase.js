@@ -2,6 +2,14 @@ import { createClient } from '@supabase/supabase-js';
 
 let supabaseClient = null;
 
+// Helper: Timeout wrapper for promises to prevent infinite hangs
+function withTimeout(promise, ms = 8000, errorMessage = "Connection timed out. Please try again.") {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(errorMessage)), ms))
+  ]);
+}
+
 // Initialize Supabase client dynamically
 export function initSupabase(url, key) {
   if (!url || !key) {
@@ -38,35 +46,52 @@ export function isConnected() {
 export async function signUp(email, password, username) {
   if (!supabaseClient) throw new Error("Supabase is not configured.");
   
-  // Register the user with metadata (so trigger can use raw_user_meta_data->>'username')
-  const { data, error } = await supabaseClient.auth.signUp({
-    email,
-    password,
-    options: {
-      data: {
-        username: username
-      }
-    }
-  });
-
-  if (error) throw error;
-  return data;
+  return withTimeout(
+    (async () => {
+      const { data, error } = await supabaseClient.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            username: username
+          }
+        }
+      });
+      if (error) throw error;
+      return data;
+    })(),
+    10000,
+    "Supabase sign up timed out. Their servers might be experiencing issues."
+  );
 }
 
 export async function signIn(email, password) {
   if (!supabaseClient) throw new Error("Supabase is not configured.");
-  const { data, error } = await supabaseClient.auth.signInWithPassword({
-    email,
-    password
-  });
-  if (error) throw error;
-  return data;
+  
+  return withTimeout(
+    (async () => {
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
+        email,
+        password
+      });
+      if (error) throw error;
+      return data;
+    })(),
+    10000,
+    "Supabase sign in timed out. Their servers might be experiencing issues."
+  );
 }
 
 export async function signOut() {
   if (!supabaseClient) return;
-  const { error } = await supabaseClient.auth.signOut();
-  if (error) throw error;
+  return withTimeout(
+    (async () => {
+      const { error } = await supabaseClient.auth.signOut();
+      if (error) throw error;
+    })(),
+    5000,
+    "Sign out timed out."
+  );
 }
 
 // --- DATABASE OPERATIONS ---
@@ -74,86 +99,121 @@ export async function signOut() {
 // Fetch Profile
 export async function getProfile(userId) {
   if (!supabaseClient) return null;
-  const { data, error } = await supabaseClient
-    .from('profiles')
-    .select('*')
-    .eq('id', userId)
-    .single();
-    
-  if (error) {
+  
+  try {
+    return await withTimeout(
+      (async () => {
+        const { data, error } = await supabaseClient
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .single();
+          
+        if (error) throw error;
+        return data;
+      })(),
+      6000,
+      "Timeout loading profile."
+    );
+  } catch (error) {
     console.error("Error loading profile from Supabase:", error);
     return null;
   }
-  return data;
 }
 
 // Update Profile (balance, xp, level)
 export async function updateProfile(userId, updates) {
   if (!supabaseClient) return null;
-  const { data, error } = await supabaseClient
-    .from('profiles')
-    .update({
-      ...updates,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', userId)
-    .select()
-    .single();
 
-  if (error) {
-    console.error("Error updating profile in Supabase:", error);
-    throw error;
-  }
-  return data;
+  return withTimeout(
+    (async () => {
+      const { data, error } = await supabaseClient
+        .from('profiles')
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    })(),
+    6000,
+    "Timeout saving profile."
+  );
 }
 
 // Fetch Stats
 export async function getStats(userId) {
   if (!supabaseClient) return null;
-  const { data, error } = await supabaseClient
-    .from('stats')
-    .select('*')
-    .eq('profile_id', userId)
-    .single();
-    
-  if (error) {
+
+  try {
+    return await withTimeout(
+      (async () => {
+        const { data, error } = await supabaseClient
+          .from('stats')
+          .select('*')
+          .eq('profile_id', userId)
+          .single();
+          
+        if (error) throw error;
+        return data;
+      })(),
+      6000,
+      "Timeout loading statistics."
+    );
+  } catch (error) {
     console.error("Error loading stats from Supabase:", error);
     return null;
   }
-  return data;
 }
 
 // Update Stats
 export async function updateStats(userId, updates) {
   if (!supabaseClient) return null;
-  const { data, error } = await supabaseClient
-    .from('stats')
-    .update(updates)
-    .eq('profile_id', userId)
-    .select()
-    .single();
 
-  if (error) {
-    console.error("Error updating stats in Supabase:", error);
-    throw error;
-  }
-  return data;
+  return withTimeout(
+    (async () => {
+      const { data, error } = await supabaseClient
+        .from('stats')
+        .update(updates)
+        .eq('profile_id', userId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    })(),
+    6000,
+    "Timeout saving statistics."
+  );
 }
 
 // Fetch Top 10 for Leaderboard
 export async function getLeaderboard(limit = 10) {
   if (!supabaseClient) return [];
-  const { data, error } = await supabaseClient
-    .from('profiles')
-    .select('username, balance, level, xp')
-    .order('balance', { ascending: false })
-    .limit(limit);
 
-  if (error) {
+  try {
+    return await withTimeout(
+      (async () => {
+        const { data, error } = await supabaseClient
+          .from('profiles')
+          .select('username, balance, level, xp')
+          .order('balance', { ascending: false })
+          .limit(limit);
+
+        if (error) throw error;
+        return data;
+      })(),
+      7000,
+      "Timeout loading leaderboard."
+    );
+  } catch (error) {
     console.error("Error loading leaderboard from Supabase:", error);
     return [];
   }
-  return data;
 }
 
 // Create fallback profile and stats dynamically if trigger fails or is delayed
@@ -161,58 +221,64 @@ export async function createFallbackProfile(userId, email, username) {
   if (!supabaseClient) return null;
   
   try {
-    // 1. Check if profile already exists
-    const { data: existing } = await supabaseClient
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle();
-      
-    if (existing) return existing;
+    return await withTimeout(
+      (async () => {
+        // 1. Check if profile already exists
+        const { data: existing } = await supabaseClient
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .maybeSingle();
+          
+        if (existing) return existing;
 
-    // 2. Create profile
-    const { data: profile, error: pError } = await supabaseClient
-      .from('profiles')
-      .insert([{
-        id: userId,
-        username: username || email.split('@')[0] || 'Player',
-        balance: 1000,
-        xp: 0,
-        level: 1
-      }])
-      .select()
-      .single();
+        // 2. Create profile
+        const { data: profile, error: pError } = await supabaseClient
+          .from('profiles')
+          .insert([{
+            id: userId,
+            username: username || email.split('@')[0] || 'Player',
+            balance: 1000,
+            xp: 0,
+            level: 1
+          }])
+          .select()
+          .single();
 
-    if (pError) {
-      console.warn("Profile insert collision/error, retrying fetch...", pError);
-      await new Promise(r => setTimeout(r, 600));
-      const { data: retryProfile } = await supabaseClient
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-      if (retryProfile) return retryProfile;
-      throw pError;
-    }
+        if (pError) {
+          console.warn("Profile insert collision/error, retrying fetch...", pError);
+          await new Promise(r => setTimeout(r, 600));
+          const { data: retryProfile } = await supabaseClient
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .single();
+          if (retryProfile) return retryProfile;
+          throw pError;
+        }
 
-    // 3. Create stats
-    const { error: sError } = await supabaseClient
-      .from('stats')
-      .insert([{
-        profile_id: userId,
-        hands_played: 0,
-        hands_won: 0,
-        hands_lost: 0,
-        hands_tied: 0,
-        blackjacks: 0,
-        highest_balance: 1000
-      }]);
+        // 3. Create stats
+        const { error: sError } = await supabaseClient
+          .from('stats')
+          .insert([{
+            profile_id: userId,
+            hands_played: 0,
+            hands_won: 0,
+            hands_lost: 0,
+            hands_tied: 0,
+            blackjacks: 0,
+            highest_balance: 1000
+          }]);
 
-    if (sError) {
-      console.warn("Stats insert error (might already exist):", sError);
-    }
+        if (sError) {
+          console.warn("Stats insert error (might already exist):", sError);
+        }
 
-    return profile;
+        return profile;
+      })(),
+      8000,
+      "Timeout setting up user profile."
+    );
   } catch (e) {
     console.error("Error in fallback profile setup:", e);
     // Final check
@@ -228,4 +294,3 @@ export async function createFallbackProfile(userId, email, username) {
     }
   }
 }
-
