@@ -621,7 +621,7 @@ function setupEventListeners() {
     try {
       isExplicitLogin = true; // Mark as explicit user sign-in action
       await signIn(email, password);
-      closeAllModals();
+      elModalAuth.classList.add('hidden');
       // Clear fields
       elSigninEmail.value = '';
       elSigninPassword.value = '';
