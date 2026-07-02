@@ -155,3 +155,77 @@ export async function getLeaderboard(limit = 10) {
   }
   return data;
 }
+
+// Create fallback profile and stats dynamically if trigger fails or is delayed
+export async function createFallbackProfile(userId, email, username) {
+  if (!supabaseClient) return null;
+  
+  try {
+    // 1. Check if profile already exists
+    const { data: existing } = await supabaseClient
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle();
+      
+    if (existing) return existing;
+
+    // 2. Create profile
+    const { data: profile, error: pError } = await supabaseClient
+      .from('profiles')
+      .insert([{
+        id: userId,
+        username: username || email.split('@')[0] || 'Player',
+        balance: 1000,
+        xp: 0,
+        level: 1
+      }])
+      .select()
+      .single();
+
+    if (pError) {
+      console.warn("Profile insert collision/error, retrying fetch...", pError);
+      await new Promise(r => setTimeout(r, 600));
+      const { data: retryProfile } = await supabaseClient
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      if (retryProfile) return retryProfile;
+      throw pError;
+    }
+
+    // 3. Create stats
+    const { error: sError } = await supabaseClient
+      .from('stats')
+      .insert([{
+        profile_id: userId,
+        hands_played: 0,
+        hands_won: 0,
+        hands_lost: 0,
+        hands_tied: 0,
+        blackjacks: 0,
+        highest_balance: 1000
+      }]);
+
+    if (sError) {
+      console.warn("Stats insert error (might already exist):", sError);
+    }
+
+    return profile;
+  } catch (e) {
+    console.error("Error in fallback profile setup:", e);
+    // Final check
+    try {
+      const { data: finalCheck } = await supabaseClient
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      return finalCheck;
+    } catch (err) {
+      return null;
+    }
+  }
+}
+

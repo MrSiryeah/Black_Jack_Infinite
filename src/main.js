@@ -13,7 +13,8 @@ import {
   updateProfile, 
   getStats, 
   updateStats, 
-  getLeaderboard 
+  getLeaderboard,
+  createFallbackProfile
 } from './supabase.js';
 
 // --- GAME STATE ---
@@ -33,6 +34,8 @@ let currentUser = null; // Supabase user object
 let userProfile = null;  // Supabase profiles table row
 let pendingAuthProfile = null; // Stash online profile during sync confirm
 let pendingAuthStats = null;   // Stash online stats during sync confirm
+let isExplicitLogin = false;   // Distinguish page load from user action
+
 
 // Guest Backup (for sync operations)
 let guestBankroll = 1000;
@@ -323,18 +326,19 @@ async function connectToSupabase(url, key, saveToStorage = false) {
     sb.auth.onAuthStateChange(async (event, session) => {
       if (session) {
         currentUser = session.user;
-        await handleUserLogin(session.user);
+        await handleUserLogin(session.user, isExplicitLogin);
+        isExplicitLogin = false; // Reset after handling
       } else {
         currentUser = null;
         handleUserLogout();
       }
     });
 
-    // Check if user is already logged in right now
+    // Check if user is already logged in right now (session recovery)
     const { data: { session } } = await sb.auth.getSession();
     if (session) {
       currentUser = session.user;
-      await handleUserLogin(session.user);
+      await handleUserLogin(session.user, false); // Implicit login (no guest sync modal)
     }
   } else {
     elDbStatusLabel.textContent = "Failed";
@@ -345,20 +349,27 @@ async function connectToSupabase(url, key, saveToStorage = false) {
   }
 }
 
-async function handleUserLogin(user) {
+async function handleUserLogin(user, isExplicit = false) {
   // Fetch cloud profile and statistics
-  const profile = await getProfile(user.id);
-  const cloudStats = await getStats(user.id);
+  let profile = await getProfile(user.id);
+  let cloudStats = await getStats(user.id);
+
+  // Fallback if profiles table is missing the row (trigger failure safety net)
+  if (!profile || !cloudStats) {
+    const metaUsername = user.user_metadata?.username || user.raw_user_meta_data?.username;
+    profile = await createFallbackProfile(user.id, user.email, metaUsername);
+    cloudStats = await getStats(user.id);
+  }
 
   if (!profile || !cloudStats) {
-    console.error("User logged in but profile/stats not found.");
+    console.error("Critical: Profile/stats could not be recovered or created.");
     return;
   }
 
   // Check if we have guest progress to merge
   const isGuestActive = (guestStats && guestStats.handsPlayed > 0) || guestBankroll !== 1000;
   
-  if (isGuestActive) {
+  if (isExplicit && isGuestActive) {
     // Show sync confirmation modal stashing profiles
     pendingAuthProfile = profile;
     pendingAuthStats = cloudStats;
@@ -608,12 +619,14 @@ function setupEventListeners() {
     const password = elSigninPassword.value;
 
     try {
+      isExplicitLogin = true; // Mark as explicit user sign-in action
       await signIn(email, password);
       closeAllModals();
       // Clear fields
       elSigninEmail.value = '';
       elSigninPassword.value = '';
     } catch (err) {
+      isExplicitLogin = false; // Reset on failure
       elAuthError.textContent = err.message || "Failed to sign in.";
       elAuthError.classList.remove('hidden');
     }
@@ -1392,6 +1405,12 @@ function sleep(ms) {
 
 // Start application
 window.addEventListener('load', init);
-window.addEventListener('click', () => {
+
+// Pre-init sounds on first interaction to eliminate tap latency
+const resumeAudio = () => {
+  sounds.init();
   sounds.resume();
-});
+};
+window.addEventListener('click', resumeAudio);
+window.addEventListener('touchstart', resumeAudio, { passive: true });
+window.addEventListener('pointerdown', resumeAudio, { passive: true });
