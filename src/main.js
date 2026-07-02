@@ -324,21 +324,32 @@ async function connectToSupabase(url, key, saveToStorage = false) {
     // Set up auth state listener
     const sb = getSupabase();
     sb.auth.onAuthStateChange(async (event, session) => {
-      if (session) {
-        currentUser = session.user;
-        await handleUserLogin(session.user, isExplicitLogin);
-        isExplicitLogin = false; // Reset after handling
-      } else {
-        currentUser = null;
-        handleUserLogout();
+      try {
+        if (session) {
+          currentUser = session.user;
+          await handleUserLogin(session.user, isExplicitLogin);
+        } else {
+          currentUser = null;
+          handleUserLogout();
+        }
+      } catch (err) {
+        console.error("Auth state change failure:", err);
+        handleUserLogout(); // Safe fallback to guest mode on error
+      } finally {
+        isExplicitLogin = false; // Always reset flag
       }
     });
 
     // Check if user is already logged in right now (session recovery)
-    const { data: { session } } = await sb.auth.getSession();
-    if (session) {
-      currentUser = session.user;
-      await handleUserLogin(session.user, false); // Implicit login (no guest sync modal)
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      if (session) {
+        currentUser = session.user;
+        await handleUserLogin(session.user, false); // Implicit login (no guest sync modal)
+      }
+    } catch (err) {
+      console.error("Failed to recover session on load:", err);
+      handleUserLogout();
     }
   } else {
     elDbStatusLabel.textContent = "Failed";
@@ -617,6 +628,11 @@ function setupEventListeners() {
     elAuthError.classList.add('hidden');
     const email = elSigninEmail.value.trim();
     const password = elSigninPassword.value;
+    
+    const submitBtn = elFormSignin.querySelector('button[type="submit"]');
+    const originalText = submitBtn.textContent;
+    submitBtn.textContent = "Signing in...";
+    submitBtn.disabled = true;
 
     try {
       isExplicitLogin = true; // Mark as explicit user sign-in action
@@ -629,6 +645,9 @@ function setupEventListeners() {
       isExplicitLogin = false; // Reset on failure
       elAuthError.textContent = err.message || "Failed to sign in.";
       elAuthError.classList.remove('hidden');
+    } finally {
+      submitBtn.textContent = originalText;
+      submitBtn.disabled = false;
     }
   });
 
@@ -639,6 +658,11 @@ function setupEventListeners() {
     const username = elSignupUsername.value.trim();
     const email = elSignupEmail.value.trim();
     const password = elSignupPassword.value;
+
+    const submitBtn = elFormSignup.querySelector('button[type="submit"]');
+    const originalText = submitBtn.textContent;
+    submitBtn.textContent = "Creating Account...";
+    submitBtn.disabled = true;
 
     try {
       await signUp(email, password, username);
@@ -653,6 +677,9 @@ function setupEventListeners() {
     } catch (err) {
       elAuthError.textContent = err.message || "Failed to register account.";
       elAuthError.classList.remove('hidden');
+    } finally {
+      submitBtn.textContent = originalText;
+      submitBtn.disabled = false;
     }
   });
 
