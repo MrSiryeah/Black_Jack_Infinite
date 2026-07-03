@@ -137,6 +137,13 @@ const elSetDbKey = document.getElementById('set-db-key');
 const elBtnConnectDb = document.getElementById('btn-connect-db');
 const elDbStatusLabel = document.getElementById('db-status-label');
 
+// Diagnostics Modal Elements
+const elModalDiagnostics = document.getElementById('modal-diagnostics');
+const elBtnDiagnoseDb = document.getElementById('btn-diagnose-db');
+const elBtnRunDiagnosticsNow = document.getElementById('btn-run-diagnostics-now');
+const elDiagnosticsLog = document.getElementById('diagnostics-log');
+
+
 // Auth Form Elements
 const elAuthTitle = document.getElementById('auth-title');
 const elTabSignin = document.getElementById('tab-signin');
@@ -520,6 +527,15 @@ function setupEventListeners() {
     }
   });
 
+  elBtnDiagnoseDb.addEventListener('click', () => {
+    showModal(elModalDiagnostics);
+    runConnectionDiagnostics();
+  });
+  
+  elBtnRunDiagnosticsNow.addEventListener('click', () => {
+    runConnectionDiagnostics();
+  });
+
   // Modal close triggers
   elModalCloseBtns.forEach(btn => {
     btn.addEventListener('click', closeAllModals);
@@ -823,6 +839,7 @@ function closeAllModals() {
   elModalLeaderboard.classList.add('hidden');
   elModalAuth.classList.add('hidden');
   elModalSyncConfirm.classList.add('hidden');
+  elModalDiagnostics.classList.add('hidden');
 }
 
 // --- LEADERBOARD RENDERER ---
@@ -1440,6 +1457,134 @@ function updateCardCounting() {
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Connection diagnostics test runner
+async function runConnectionDiagnostics() {
+  elDiagnosticsLog.innerHTML = '';
+  const log = (msg, color = '#fff') => {
+    const time = new Date().toLocaleTimeString();
+    elDiagnosticsLog.innerHTML += `<span style="color:#64748b">[${time}]</span> <span style="color:${color}">${msg}</span>\n`;
+    elDiagnosticsLog.scrollTop = elDiagnosticsLog.scrollHeight;
+  };
+
+  log("Starting Supabase connection diagnostics...", "#d4af37");
+
+  // 1. Read URL and key
+  const url = elSetDbUrl.value.trim() || import.meta.env.VITE_SUPABASE_URL;
+  const key = elSetDbKey.value.trim() || import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+  if (!url || !key) {
+    log("❌ Error: Supabase URL or Anon Key is missing!", "#ef4444");
+    return;
+  }
+
+  log(`Project URL: ${url}`);
+  log(`Anon Key loaded: ${key.substring(0, 8)}...${key.substring(key.length - 8)}`);
+
+  // 2. Ping check (Basic network fetch)
+  log("\nChecking network connectivity (pinging API health endpoint)...");
+  try {
+    const pingStart = Date.now();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(`${url}/auth/v1/health`, { 
+      method: 'GET', 
+      headers: { 'apikey': key },
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    
+    if (res.ok) {
+      log(`✅ API health ping successful! Status: ${res.status} (${Date.now() - pingStart}ms)`, "#10b981");
+    } else {
+      log(`⚠️ API health returned non-200 status: ${res.status}`, "#f59e0b");
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      log("❌ Ping Failed: Network request timed out (5 seconds). Supabase might be experiencing outage/lag.", "#ef4444");
+    } else {
+      log(`❌ Ping Failed: ${e.message}\nThis often means your request was blocked (e.g. by an ad-blocker or firewall), or the domain is down.`, "#ef4444");
+    }
+  }
+
+  // 3. Client initialization test
+  log("\nTesting Supabase client instance...");
+  const sb = getSupabase();
+  if (!sb) {
+    log("❌ Supabase client is not initialized in the app!", "#ef4444");
+    return;
+  }
+  log("✅ Supabase client instance is active.", "#10b981");
+
+  // 4. Auth Session Check
+  log("\nChecking authentication session...");
+  try {
+    const { data: { session }, error: sError } = await sb.auth.getSession();
+    if (sError) {
+      log(`❌ Auth check error: ${sError.message}`, "#ef4444");
+    } else {
+      log(`✅ Auth service ok! Current state: ${session ? `Logged In as ${session.user.email}` : "Guest Mode (Logged Out)"}`, "#10b981");
+    }
+  } catch (e) {
+    log(`❌ Auth service test threw exception: ${e.message}`, "#ef4444");
+  }
+
+  // 5. Select from Profiles table
+  log("\nTesting SELECT from 'profiles' table...");
+  try {
+    const queryStart = Date.now();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    
+    const { data: profiles, error: pError } = await sb
+      .from('profiles')
+      .select('count', { count: 'exact', head: true })
+      .limit(1);
+      
+    clearTimeout(timeoutId);
+
+    if (pError) {
+      log(`❌ Profiles Table Select failed: ${pError.message} (Code: ${pError.code})`, "#ef4444");
+    } else {
+      log(`✅ Profiles Table Select successful! (${Date.now() - queryStart}ms)`, "#10b981");
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      log("❌ Profiles Select timed out (6 seconds). Postgres database is unresponsive/slow.", "#ef4444");
+    } else {
+      log(`❌ Profiles Select threw exception: ${e.message}`, "#ef4444");
+    }
+  }
+
+  // 6. Select from Stats table
+  log("\nTesting SELECT from 'stats' table...");
+  try {
+    const queryStart = Date.now();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+    const { data: stats, error: sError } = await sb
+      .from('stats')
+      .select('profile_id')
+      .limit(1);
+      
+    clearTimeout(timeoutId);
+
+    if (sError) {
+      log(`❌ Stats Table Select failed: ${sError.message} (Code: ${sError.code})`, "#ef4444");
+    } else {
+      log(`✅ Stats Table Select successful! (${Date.now() - queryStart}ms)`, "#10b981");
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      log("❌ Stats Select timed out (6 seconds). Postgres database is unresponsive/slow.", "#ef4444");
+    } else {
+      log(`❌ Stats Select threw exception: ${e.message}`, "#ef4444");
+    }
+  }
+
+  log("\nDiagnostics run complete.", "#d4af37");
 }
 
 // Start application

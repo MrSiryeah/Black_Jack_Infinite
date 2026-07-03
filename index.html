@@ -278,9 +278,10 @@
                 <label for="set-db-key">Anon Public Key</label>
                 <input type="password" id="set-db-key" placeholder="eyJhbGciOi..." class="form-input" />
               </div>
-              <div class="setting-row-actions">
+              <div class="setting-row-actions" style="flex-wrap: wrap; gap: 8px;">
                 <span id="db-status-label" class="db-status disconnected">Disconnected</span>
                 <button id="btn-connect-db" class="btn btn-secondary btn-sm">Connect DB</button>
+                <button id="btn-diagnose-db" class="btn btn-secondary btn-sm" style="background: rgba(255, 255, 255, 0.05);">Diagnose</button>
               </div>
             </div>
           </div>
@@ -544,6 +545,28 @@
           <div class="modal-footer">
             <button id="btn-sync-fresh" class="btn btn-secondary">Discard & Start Fresh</button>
             <button id="btn-sync-merge" class="btn btn-primary">Merge Guest Progress</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 7. Connection Diagnostics Modal -->
+      <div id="modal-diagnostics" class="modal-overlay hidden">
+        <div class="modal-content glass-panel" style="max-width: 450px;">
+          <div class="modal-header">
+            <h2>Connection Diagnostics</h2>
+            <button class="modal-close">&times;</button>
+          </div>
+          <div class="modal-body">
+            <p style="font-size: 0.8rem; margin-bottom: 10px; color: rgba(255,255,255,0.7);">
+              This tool tests real-time connection from your device to the Supabase endpoint.
+            </p>
+            <div id="diagnostics-log" style="font-family: monospace; font-size: 0.72rem; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 10px; max-height: 250px; overflow-y: auto; white-space: pre-wrap; line-height: 1.4; color: #fff; margin-bottom: 15px;">
+Ready to run test...
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button id="btn-run-diagnostics-now" class="btn btn-primary">Run Test Now</button>
+            <button class="btn btn-secondary modal-close-btn">Close</button>
           </div>
         </div>
       </div>
