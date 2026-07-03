@@ -70,6 +70,13 @@ export async function signIn(email, password) {
   
   return withTimeout(
     (async () => {
+      // Clear any stuck/stale session first
+      try {
+        await supabaseClient.auth.signOut();
+      } catch (e) {
+        // Ignore errors during cleanup sign-out
+      }
+      
       const { data, error } = await supabaseClient.auth.signInWithPassword({
         email,
         password
