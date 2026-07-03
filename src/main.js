@@ -1,3 +1,4 @@
+import './debug.js';
 import './style.css';
 import { Deck, Hand, getBasicStrategyAdvice } from './blackjack.js';
 import { sounds } from './sounds.js';
@@ -339,6 +340,19 @@ async function connectToSupabase(url, key, saveToStorage = false) {
         isExplicitLogin = false; // Always reset flag
       }
     });
+
+    // Check if user is already logged in right now (session recovery helper)
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      if (session) {
+        console.log("Session found in getSession(), restoring user profile...");
+        currentUser = session.user;
+        await handleUserLogin(session.user, false);
+      }
+    } catch (err) {
+      console.error("Failed to recover session on load:", err);
+      handleUserLogout();
+    }
   } else {
     elDbStatusLabel.textContent = "Failed";
     elDbStatusLabel.className = "db-status disconnected";
